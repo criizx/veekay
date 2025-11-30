@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <sstream>
 
 #include <veekay/veekay.hpp>
 
@@ -21,6 +22,12 @@ struct Vertex {
 	veekay::vec3 normal;
 	veekay::vec2 uv;
 	// NOTE: You can add more attributes
+};
+
+struct OBJIndex {
+	int v = 0;
+	int vt = 0;
+	int vn = 0;
 };
 
 struct SceneUniforms {
@@ -110,20 +117,164 @@ float toRadians(float degrees) {
 	return degrees * float(M_PI) / 180.0f;
 }
 
-veekay::mat4 Transform::matrix() const {
-	// TODO: Scaling and rotation
+// Добавьте эти вспомогательные функции в начало файла (после namespace {):
 
-	auto t = veekay::mat4::translation(position);
+// Вспомогательные функции для матриц
+namespace MatrixHelper {
+	veekay::mat4 rotation_x(float angle) {
+		veekay::mat4 result = veekay::mat4::identity();
+		float c = std::cos(angle);
+		float s = std::sin(angle);
 
-	return t;
+		result[1][1] = c;
+		result[1][2] = s;
+		result[2][1] = -s;
+		result[2][2] = c;
+
+		return result;
+	}
+
+	veekay::mat4 rotation_y(float angle) {
+		veekay::mat4 result = veekay::mat4::identity();
+		float c = std::cos(angle);
+		float s = std::sin(angle);
+
+		result[0][0] = c;
+		result[0][2] = -s;
+		result[2][0] = s;
+		result[2][2] = c;
+
+		return result;
+	}
+
+	veekay::mat4 rotation_z(float angle) {
+		veekay::mat4 result = veekay::mat4::identity();
+		float c = std::cos(angle);
+		float s = std::sin(angle);
+
+		result[0][0] = c;
+		result[0][1] = s;
+		result[1][0] = -s;
+		result[1][1] = c;
+
+		return result;
+	}
+
+	veekay::mat4 inverse(const veekay::mat4& m) {
+		veekay::mat4 inv{};
+		float det;
+
+		inv[0][0] = m[1][1] * m[2][2] * m[3][3] - m[1][1] * m[2][3] * m[3][2] -
+		            m[2][1] * m[1][2] * m[3][3] + m[2][1] * m[1][3] * m[3][2] +
+		            m[3][1] * m[1][2] * m[2][3] - m[3][1] * m[1][3] * m[2][2];
+
+		inv[1][0] = -m[1][0] * m[2][2] * m[3][3] + m[1][0] * m[2][3] * m[3][2] +
+		             m[2][0] * m[1][2] * m[3][3] - m[2][0] * m[1][3] * m[3][2] -
+		             m[3][0] * m[1][2] * m[2][3] + m[3][0] * m[1][3] * m[2][2];
+
+		inv[2][0] = m[1][0] * m[2][1] * m[3][3] - m[1][0] * m[2][3] * m[3][1] -
+		            m[2][0] * m[1][1] * m[3][3] + m[2][0] * m[1][3] * m[3][1] +
+		            m[3][0] * m[1][1] * m[2][3] - m[3][0] * m[1][3] * m[2][1];
+
+		inv[3][0] = -m[1][0] * m[2][1] * m[3][2] + m[1][0] * m[2][2] * m[3][1] +
+		             m[2][0] * m[1][1] * m[3][2] - m[2][0] * m[1][2] * m[3][1] -
+		             m[3][0] * m[1][1] * m[2][2] + m[3][0] * m[1][2] * m[2][1];
+
+		inv[0][1] = -m[0][1] * m[2][2] * m[3][3] + m[0][1] * m[2][3] * m[3][2] +
+		             m[2][1] * m[0][2] * m[3][3] - m[2][1] * m[0][3] * m[3][2] -
+		             m[3][1] * m[0][2] * m[2][3] + m[3][1] * m[0][3] * m[2][2];
+
+		inv[1][1] = m[0][0] * m[2][2] * m[3][3] - m[0][0] * m[2][3] * m[3][2] -
+		            m[2][0] * m[0][2] * m[3][3] + m[2][0] * m[0][3] * m[3][2] +
+		            m[3][0] * m[0][2] * m[2][3] - m[3][0] * m[0][3] * m[2][2];
+
+		inv[2][1] = -m[0][0] * m[2][1] * m[3][3] + m[0][0] * m[2][3] * m[3][1] +
+		             m[2][0] * m[0][1] * m[3][3] - m[2][0] * m[0][3] * m[3][1] -
+		             m[3][0] * m[0][1] * m[2][3] + m[3][0] * m[0][3] * m[2][1];
+
+		inv[3][1] = m[0][0] * m[2][1] * m[3][2] - m[0][0] * m[2][2] * m[3][1] -
+		            m[2][0] * m[0][1] * m[3][2] + m[2][0] * m[0][2] * m[3][1] +
+		            m[3][0] * m[0][1] * m[2][2] - m[3][0] * m[0][2] * m[2][1];
+
+		inv[0][2] = m[0][1] * m[1][2] * m[3][3] - m[0][1] * m[1][3] * m[3][2] -
+		            m[1][1] * m[0][2] * m[3][3] + m[1][1] * m[0][3] * m[3][2] +
+		            m[3][1] * m[0][2] * m[1][3] - m[3][1] * m[0][3] * m[1][2];
+
+		inv[1][2] = -m[0][0] * m[1][2] * m[3][3] + m[0][0] * m[1][3] * m[3][2] +
+		             m[1][0] * m[0][2] * m[3][3] - m[1][0] * m[0][3] * m[3][2] -
+		             m[3][0] * m[0][2] * m[1][3] + m[3][0] * m[0][3] * m[1][2];
+
+		inv[2][2] = m[0][0] * m[1][1] * m[3][3] - m[0][0] * m[1][3] * m[3][1] -
+		            m[1][0] * m[0][1] * m[3][3] + m[1][0] * m[0][3] * m[3][1] +
+		            m[3][0] * m[0][1] * m[1][3] - m[3][0] * m[0][3] * m[1][1];
+
+		inv[3][2] = -m[0][0] * m[1][1] * m[3][2] + m[0][0] * m[1][2] * m[3][1] +
+		             m[1][0] * m[0][1] * m[3][2] - m[1][0] * m[0][2] * m[3][1] -
+		             m[3][0] * m[0][1] * m[1][2] + m[3][0] * m[0][2] * m[1][1];
+
+		inv[0][3] = -m[0][1] * m[1][2] * m[2][3] + m[0][1] * m[1][3] * m[2][2] +
+		             m[1][1] * m[0][2] * m[2][3] - m[1][1] * m[0][3] * m[2][2] -
+		             m[2][1] * m[0][2] * m[1][3] + m[2][1] * m[0][3] * m[1][2];
+
+		inv[1][3] = m[0][0] * m[1][2] * m[2][3] - m[0][0] * m[1][3] * m[2][2] -
+		            m[1][0] * m[0][2] * m[2][3] + m[1][0] * m[0][3] * m[2][2] +
+		            m[2][0] * m[0][2] * m[1][3] - m[2][0] * m[0][3] * m[1][2];
+
+		inv[2][3] = -m[0][0] * m[1][1] * m[2][3] + m[0][0] * m[1][3] * m[2][1] +
+		             m[1][0] * m[0][1] * m[2][3] - m[1][0] * m[0][3] * m[2][1] -
+		             m[2][0] * m[0][1] * m[1][3] + m[2][0] * m[0][3] * m[1][1];
+
+		inv[3][3] = m[0][0] * m[1][1] * m[2][2] - m[0][0] * m[1][2] * m[2][1] -
+		            m[1][0] * m[0][1] * m[2][2] + m[1][0] * m[0][2] * m[2][1] +
+		            m[2][0] * m[0][1] * m[1][2] - m[2][0] * m[0][2] * m[1][1];
+
+		det = m[0][0] * inv[0][0] + m[0][1] * inv[1][0] +
+		      m[0][2] * inv[2][0] + m[0][3] * inv[3][0];
+
+		if (det == 0.0f) {
+			return veekay::mat4::identity();
+		}
+
+		det = 1.0f / det;
+
+		veekay::mat4 result{};
+		for (int i = 0; i < 4; i++) {
+			for (int j = 0; j < 4; j++) {
+				result[i][j] = inv[i][j] * det;
+			}
+		}
+
+		return result;
+	}
 }
 
+// Замените функцию Transform::matrix() на эту:
+veekay::mat4 Transform::matrix() const {
+	// Матрица масштабирования
+	veekay::mat4 s = veekay::mat4::scaling(scale);
+
+	// Матрицы вращения (порядок: Y * X * Z - yaw, pitch, roll)
+	veekay::mat4 rx = MatrixHelper::rotation_x(rotation.x);
+	veekay::mat4 ry = MatrixHelper::rotation_y(rotation.y);
+	veekay::mat4 rz = MatrixHelper::rotation_z(rotation.z);
+
+	// Матрица переноса
+	veekay::mat4 t = veekay::mat4::translation(position);
+
+	// Комбинируем: Translation * Rotation * Scale
+	return s * rz * rx * ry * t;
+}
+
+// Замените функцию Camera::view() на эту:
 veekay::mat4 Camera::view() const {
-	// TODO: Rotation
+	// Создаём трансформацию камеры
+	Transform camera_transform;
+	camera_transform.position = position;
+	camera_transform.rotation = {-rotation.x, rotation.y, rotation.z}; // Инвертируем pitch
+	camera_transform.scale = {1.0f, 1.0f, 1.0f};
 
-	auto t = veekay::mat4::translation(-position);
-
-	return t;
+	// View матрица - это инверсия матрицы трансформации камеры
+	return MatrixHelper::inverse(camera_transform.matrix());
 }
 
 veekay::mat4 Camera::view_projection(float aspect_ratio) const {
@@ -153,6 +304,118 @@ VkShaderModule loadShaderModule(const char* path) {
 	                         info, nullptr, &result) != VK_SUCCESS) {
 		return nullptr;
 	}
+
+	return result;
+}
+
+Mesh loadOBJ(const char* filepath) {
+	std::ifstream file(filepath);
+
+	if (!file.is_open()) {
+		std::cerr << "Failed to open OBJ file: " << filepath << '\n';
+		return Mesh{};
+	}
+
+	std::vector<veekay::vec3> positions;
+	std::vector<veekay::vec2> texcoords;
+	std::vector<veekay::vec3> normals;
+
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
+
+	std::string line;
+	while (std::getline(file, line)) {
+		if (line.empty() || line[0] == '#') continue;
+
+		std::istringstream iss(line);
+		std::string prefix;
+		iss >> prefix;
+
+		if (prefix == "v") {
+			veekay::vec3 pos;
+			iss >> pos.x >> pos.y >> pos.z;
+			positions.push_back(pos);
+		}
+		else if (prefix == "vt") {
+			veekay::vec2 uv;
+			iss >> uv.x >> uv.y;
+			texcoords.push_back(uv);
+		}
+		else if (prefix == "vn") {
+			veekay::vec3 normal;
+			iss >> normal.x >> normal.y >> normal.z;
+			normals.push_back(normal);
+		}
+		else if (prefix == "f") {
+			std::vector<OBJIndex> face_indices;
+			std::string vertex_str;
+
+			while (iss >> vertex_str) {
+				OBJIndex idx;
+
+				size_t pos1 = vertex_str.find('/');
+				size_t pos2 = vertex_str.find('/', pos1 + 1);
+
+				idx.v = std::stoi(vertex_str.substr(0, pos1));
+
+				if (pos1 != std::string::npos) {
+					if (pos2 != std::string::npos) {
+						if (pos2 > pos1 + 1) {
+							idx.vt = std::stoi(vertex_str.substr(pos1 + 1, pos2 - pos1 - 1));
+						}
+						idx.vn = std::stoi(vertex_str.substr(pos2 + 1));
+					} else {
+						idx.vt = std::stoi(vertex_str.substr(pos1 + 1));
+					}
+				}
+
+				face_indices.push_back(idx);
+			}
+
+			for (size_t i = 1; i + 1 < face_indices.size(); ++i) {
+				for (size_t j : {size_t(0), i, i + 1}) {
+					const OBJIndex& idx = face_indices[j];
+
+					Vertex vertex{};
+
+					if (idx.v > 0 && idx.v <= positions.size()) {
+						vertex.position = positions[idx.v - 1];
+					}
+
+					if (idx.vt > 0 && idx.vt <= texcoords.size()) {
+						vertex.uv = texcoords[idx.vt - 1];
+					}
+
+					if (idx.vn > 0 && idx.vn <= normals.size()) {
+						vertex.normal = normals[idx.vn - 1];
+					} else {
+						vertex.normal = {0.0f, 1.0f, 0.0f};
+					}
+
+					indices.push_back(static_cast<uint32_t>(vertices.size()));
+					vertices.push_back(vertex);
+				}
+			}
+		}
+	}
+
+	file.close();
+
+	if (vertices.empty() || indices.empty()) {
+		std::cerr << "OBJ file has no geometry: " << filepath << '\n';
+		return Mesh{};
+	}
+
+	Mesh result;
+	result.vertex_buffer = new veekay::graphics::Buffer(
+		vertices.size() * sizeof(Vertex), vertices.data(),
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
+	result.index_buffer = new veekay::graphics::Buffer(
+		indices.size() * sizeof(uint32_t), indices.data(),
+		VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+
+	result.indices = static_cast<uint32_t>(indices.size());
 
 	return result;
 }
@@ -611,6 +874,17 @@ void initialize(VkCommandBuffer cmd) {
 		},
 		.albedo_color = veekay::vec3{0.0f, 0.0f, 1.0f}
 	});
+
+	Mesh obj_mesh = loadOBJ("./models/mymodel.obj");
+
+	models.emplace_back(Model{
+		.mesh = obj_mesh,
+		.transform = Transform{
+			.position = {0.0f, -0.5f, 0.0f},
+		},
+		.albedo_color = veekay::vec3{1.0f, 0.5f, 0.0f}
+	});
+
 }
 
 // NOTE: Destroy resources here, do not cause leaks in your program!
@@ -640,41 +914,88 @@ void shutdown() {
 
 void update(double time) {
 	ImGui::Begin("Controls:");
+	ImGui::Text("Click on window to capture mouse");
+	ImGui::Text("Press ESC to release mouse");
+	ImGui::Text("W/A/S/D - Move (independent of camera pitch)");
+	ImGui::Text("Space/Ctrl - Up/Down");
+	ImGui::Text("Shift - Run");
 	ImGui::End();
 
-	if (!ImGui::IsWindowHovered()) {
-		using namespace veekay::input;
+	using namespace veekay::input;
 
-		if (mouse::isButtonDown(mouse::Button::left)) {
-			auto move_delta = mouse::cursorDelta();
+	// Capture mouse on window click, release on ESC
+	static bool mouse_captured = false;
 
-			// TODO: Use mouse_delta to update camera rotation
-			
-			auto view = camera.view();
+	if (!mouse_captured && mouse::isButtonPressed(mouse::Button::left) && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow)) {
+		mouse_captured = true;
+		mouse::setCaptured(true);
+	}
 
-			// TODO: Calculate right, up and front from view matrix
-			veekay::vec3 right = {1.0f, 0.0f, 0.0f};
-			veekay::vec3 up = {0.0f, -1.0f, 0.0f};
-			veekay::vec3 front = {0.0f, 0.0f, 1.0f};
+	if (mouse_captured && keyboard::isKeyPressed(keyboard::Key::escape)) {
+		mouse_captured = false;
+		mouse::setCaptured(false);
+	}
 
-			if (keyboard::isKeyDown(keyboard::Key::w))
-				camera.position += front * 0.1f;
+	if (mouse_captured) {
+		// Update camera rotation based on mouse movement
+		auto mouse_delta = mouse::cursorDelta();
 
-			if (keyboard::isKeyDown(keyboard::Key::s))
-				camera.position -= front * 0.1f;
+		const float sensitivity = 0.002f; // Mouse sensitivity
+		camera.rotation.y += mouse_delta.x * sensitivity; // Yaw (horizontal)
+		camera.rotation.x += mouse_delta.y * sensitivity; // Pitch (vertical)
 
-			if (keyboard::isKeyDown(keyboard::Key::d))
-				camera.position += right * 0.1f;
+		// Clamp pitch to prevent camera flipping
+		const float max_pitch = 1.55f; // ~89 degrees
+		if (camera.rotation.x > max_pitch) camera.rotation.x = max_pitch;
+		if (camera.rotation.x < -max_pitch) camera.rotation.x = -max_pitch;
 
-			if (keyboard::isKeyDown(keyboard::Key::a))
-				camera.position -= right * 0.1f;
+		// Calculate direction vectors for movement (only yaw, no pitch)
+		float cos_yaw = std::cos(camera.rotation.y);
+		float sin_yaw = std::sin(camera.rotation.y);
 
-			if (keyboard::isKeyDown(keyboard::Key::q))
-				camera.position += up * 0.1f;
+		// Front vector - only horizontal plane (Y = 0)
+		veekay::vec3 front = {
+			sin_yaw,
+			0.0f,
+			cos_yaw
+		};
+		front = veekay::vec3::normalized(front);
 
-			if (keyboard::isKeyDown(keyboard::Key::z))
-				camera.position -= up * 0.1f;
+		// Right vector - perpendicular to front on horizontal plane
+		veekay::vec3 right = {
+			cos_yaw,
+			0.0f,
+			-sin_yaw
+		};
+
+		// Up vector - always world up
+		veekay::vec3 up = {0.0f, 1.0f, 0.0f};
+
+		// Movement speed
+		float move_speed = 0.1f;
+		if (keyboard::isKeyDown(keyboard::Key::left_shift)) {
+			move_speed *= 2.0f; // Run when shift is held
 		}
+
+		// WASD movement - independent of camera pitch
+		if (keyboard::isKeyDown(keyboard::Key::s))
+			camera.position -= front * move_speed;
+
+		if (keyboard::isKeyDown(keyboard::Key::w))
+			camera.position += front * move_speed;
+
+		if (keyboard::isKeyDown(keyboard::Key::a))
+			camera.position -= right * move_speed;
+
+		if (keyboard::isKeyDown(keyboard::Key::d))
+			camera.position += right * move_speed;
+
+		// Up/Down movement (Space/Ctrl)
+		if (keyboard::isKeyDown(keyboard::Key::space))
+			camera.position -= up * move_speed;
+
+		if (keyboard::isKeyDown(keyboard::Key::left_control))
+			camera.position += up * move_speed;
 	}
 
 	float aspect_ratio = float(veekay::app.window_width) / float(veekay::app.window_height);

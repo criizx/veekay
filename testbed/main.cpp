@@ -44,8 +44,11 @@ struct Vertex {
 	};
 
 struct ModelUniforms {
-	veekay::mat4 model;
-	veekay::vec3 albedo_color; float _pad0;
+    veekay::mat4 model;
+    veekay::mat4 normal_matrix;
+    veekay::vec3 albedo_color;
+    float specular_intensity;
+    float _pad[3];
 };
 
 struct Mesh {
@@ -63,9 +66,10 @@ struct Transform {
 };
 
 struct Model {
-	Mesh mesh;
-	Transform transform;
-	veekay::vec3 albedo_color;
+    Mesh mesh;
+    Transform transform;
+    veekay::vec3 albedo_color;
+    float specular_intensity = 1.0f;
 };
 
 struct Camera {
@@ -733,7 +737,8 @@ void initialize(VkCommandBuffer cmd) {
 	models.emplace_back(Model{
 		.mesh = plane_mesh,
 		.transform = Transform{},
-		.albedo_color = veekay::vec3{1.0f, 1.0f, 1.0f}
+		.albedo_color = veekay::vec3{1.0f, 1.0f, 1.0f},
+		.specular_intensity = 0.8f
 	});
 
 	models.emplace_back(Model{
@@ -741,7 +746,8 @@ void initialize(VkCommandBuffer cmd) {
 		.transform = Transform{
 			.position = {-2.0f, -0.5f, -1.5f},
 		},
-		.albedo_color = veekay::vec3{1.0f, 0.0f, 0.0f}
+		.albedo_color = veekay::vec3{1.0f, 0.0f, 0.0f},
+		.specular_intensity = 1.0f
 	});
 
 	models.emplace_back(Model{
@@ -749,7 +755,8 @@ void initialize(VkCommandBuffer cmd) {
 		.transform = Transform{
 			.position = {1.5f, -0.5f, -0.5f},
 		},
-		.albedo_color = veekay::vec3{0.0f, 1.0f, 0.0f}
+		.albedo_color = veekay::vec3{0.0f, 1.0f, 0.0f},
+		.specular_intensity = 3.0f
 	});
 
 	models.emplace_back(Model{
@@ -757,7 +764,8 @@ void initialize(VkCommandBuffer cmd) {
 		.transform = Transform{
 			.position = {0.0f, -0.5f, 1.0f},
 		},
-		.albedo_color = veekay::vec3{0.0f, 0.0f, 1.0f}
+		.albedo_color = veekay::vec3{0.0f, 0.0f, 1.0f},
+		.specular_intensity = 0.2f
 	});
 }
 
@@ -886,12 +894,17 @@ void update(double time) {
 
     std::vector<ModelUniforms> model_uniforms(models.size());
     for (size_t i = 0, n = models.size(); i < n; ++i) {
-        const Model& model = models[i];
-        ModelUniforms& uniforms = model_uniforms[i];
+    const Model& model = models[i];
+    ModelUniforms& uniforms = model_uniforms[i];
 
-        uniforms.model = model.transform.matrix();
-        uniforms.albedo_color = model.albedo_color;
-    }
+    uniforms.model = model.transform.matrix();
+
+    veekay::mat4 transposed = veekay::mat4::transpose(uniforms.model);
+    uniforms.normal_matrix = MatrixHelper::inverse(transposed);
+
+    uniforms.albedo_color = model.albedo_color;
+    uniforms.specular_intensity = model.specular_intensity;
+}
 
     *(SceneUniforms*)scene_uniforms_buffer->mapped_region = scene_uniforms;
 

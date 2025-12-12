@@ -121,8 +121,8 @@ inline namespace {
 	veekay::graphics::Texture* missing_texture;
 	VkSampler missing_texture_sampler;
 
-	veekay::graphics::Texture* texture;
-	VkSampler texture_sampler;
+	veekay::graphics::Texture* floor_texture;
+	VkSampler floor_texture_sampler;
 }
 
 float toRadians(float degrees) {
@@ -493,22 +493,28 @@ void initialize(VkCommandBuffer cmd) {
 			}
 		}
 
-		// NOTE: Descriptor set layout specification
-		{
-			VkDescriptorSetLayoutBinding bindings[] = {
-				{
-					.binding = 0,
-					.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-					.descriptorCount = 1,
-					.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-				},
-				{
-					.binding = 1,
-					.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-					.descriptorCount = 1,
-					.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-				},
-			};
+// NOTE: Descriptor set layout specification
+{
+    VkDescriptorSetLayoutBinding bindings[] = {
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        },
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        },
+        {
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+        },
+    };
 
 			VkDescriptorSetLayoutCreateInfo info{
 				.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -610,45 +616,96 @@ void initialize(VkCommandBuffer cmd) {
 		                                                VK_FORMAT_B8G8R8A8_UNORM,
 		                                                pixels);
 	}
+{
+    std::vector<unsigned char> image;
+    unsigned width, height;
 
-	{
-		VkDescriptorBufferInfo buffer_infos[] = {
-			{
-				.buffer = scene_uniforms_buffer->buffer,
-				.offset = 0,
-				.range = sizeof(SceneUniforms),
-			},
-			{
-				.buffer = model_uniforms_buffer->buffer,
-				.offset = 0,
-				.range = sizeof(ModelUniforms),
-			},
-		};
+    unsigned error = lodepng::decode(image, width, height, "/home/rr/CLionProjects/veekay/assets/name.png");
 
-		VkWriteDescriptorSet write_infos[] = {
-			{
-				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet = descriptor_set,
-				.dstBinding = 0,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-				.pBufferInfo = &buffer_infos[0],
-			},
-			{
-				.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-				.dstSet = descriptor_set,
-				.dstBinding = 1,
-				.dstArrayElement = 0,
-				.descriptorCount = 1,
-				.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-				.pBufferInfo = &buffer_infos[1],
-			},
-		};
+    if (error) {
+        std::cerr << "Failed to load floor texture: " << lodepng_error_text(error) << '\n';
+        floor_texture = missing_texture;
+        floor_texture_sampler = missing_texture_sampler;
+    } else {
+        floor_texture = new veekay::graphics::Texture(cmd, width, height,
+                                                      VK_FORMAT_R8G8B8A8_UNORM,
+                                                      image.data());
 
-		vkUpdateDescriptorSets(device, sizeof(write_infos) / sizeof(write_infos[0]),
-		                       write_infos, 0, nullptr);
-	}
+        VkSamplerCreateInfo info{
+            .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = VK_FILTER_LINEAR,
+            .minFilter = VK_FILTER_LINEAR,
+            .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .anisotropyEnable = VK_TRUE,
+            .maxAnisotropy = 16.0f,
+            .minLod = 0.0f,
+            .maxLod = VK_LOD_CLAMP_NONE,
+        };
+
+        if (vkCreateSampler(device, &info, nullptr, &floor_texture_sampler) != VK_SUCCESS) {
+            std::cerr << "Failed to create floor texture sampler\n";
+            veekay::app.running = false;
+            return;
+        }
+    }
+}
+
+{
+    VkDescriptorBufferInfo buffer_infos[] = {
+        {
+            .buffer = scene_uniforms_buffer->buffer,
+            .offset = 0,
+            .range = sizeof(SceneUniforms),
+        },
+        {
+            .buffer = model_uniforms_buffer->buffer,
+            .offset = 0,
+            .range = sizeof(ModelUniforms),
+        },
+    };
+
+    VkDescriptorImageInfo image_info{
+        .sampler = floor_texture_sampler,
+        .imageView = floor_texture->view,
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    };
+
+    VkWriteDescriptorSet write_infos[] = {
+        {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = descriptor_set,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pBufferInfo = &buffer_infos[0],
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = descriptor_set,
+            .dstBinding = 1,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+            .pBufferInfo = &buffer_infos[1],
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = descriptor_set,
+            .dstBinding = 2,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &image_info,
+        },
+    };
+
+    vkUpdateDescriptorSets(device, sizeof(write_infos) / sizeof(write_infos[0]),
+                           write_infos, 0, nullptr);
+}
 
 	// NOTE: Plane mesh initialization
 	{
@@ -772,6 +829,11 @@ void initialize(VkCommandBuffer cmd) {
 // NOTE: Destroy resources here, do not cause leaks in your program!
 	void shutdown() {
 	VkDevice& device = veekay::app.vk_device;
+
+	    if (floor_texture != missing_texture) {
+        vkDestroySampler(device, floor_texture_sampler, nullptr);
+        delete floor_texture;
+    }
 
 	vkDestroySampler(device, missing_texture_sampler, nullptr);
 	delete missing_texture;

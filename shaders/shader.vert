@@ -9,21 +9,23 @@ layout (location = 1) out vec3 f_normal;
 layout (location = 2) out vec2 f_uv;
 
 layout (binding = 0, std140) uniform SceneUniforms {
-	mat4 view_projection;
+    mat4 view_projection;
 };
 
 layout (binding = 1, std140) uniform ModelUniforms {
-	mat4 model;
-	vec3 albedo_color;
+    mat4 model;
+    mat4 normal_matrix;
+    vec3 albedo_color;
+    float specular_intensity;
 };
 
 void main() {
-	vec4 position = model * vec4(v_position, 1.0f);
-	vec4 normal = model * vec4(v_normal, 0.0f);
+    vec4 position = model * vec4(v_position, 1.0f);
+    vec4 normal = normal_matrix * vec4(v_normal, 0.0f);
 
-	gl_Position = view_projection * position;
+    gl_Position = view_projection * position;
 
-	f_position = position.xyz;
-	f_normal = normal.xyz;
-	f_uv = v_uv;
+    f_position = position.xyz;
+    f_normal = normal.xyz;
+    f_uv = v_uv;
 }

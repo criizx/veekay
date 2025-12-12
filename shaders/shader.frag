@@ -29,21 +29,27 @@ layout (binding = 0, std140) uniform SceneUniforms {
 
 layout (binding = 1, std140) uniform ModelUniforms {
     mat4 model;
-    mat4 normal_matrix;  // Новая: inverse transpose для нормалей
+    mat4 normal_matrix;
     vec3 albedo_color;
-    float specular_intensity;  // Теперь явно используется
-    vec3 _pad_model;  // Padding для std140
+    float specular_intensity;
+    vec3 _pad_model;
 };
 
+layout (binding = 2) uniform sampler2D u_texture;
+
 void main() {
-    vec3 normal   = normalize(f_normal);  // Нормализация (на случай интерполяции)
+    vec3 normal = normalize(f_normal);
     vec3 view_dir = normalize(camera_position - f_position);
 
-    vec3 ambient = ambient_color * ambient_intensity * albedo_color;
+    vec3 texture_color = texture(u_texture, f_uv).rgb;
+
+    vec3 base_color = texture_color * albedo_color;
+
+    vec3 ambient = ambient_color * ambient_intensity * base_color;
 
     vec3 light_dir = normalize(-directional_direction);
     float diff = max(dot(normal, light_dir), 0.0);
-    vec3 diffuse_directional = directional_color * directional_intensity * diff * albedo_color;
+    vec3 diffuse_directional = directional_color * directional_intensity * diff * base_color;
 
     vec3 halfway_dir = normalize(light_dir + view_dir);
     float spec = pow(max(dot(normal, halfway_dir), 0.0), 32.0);
@@ -59,11 +65,10 @@ void main() {
     float spot_diff = max(dot(normal, spotlight_dir), 0.0);
 
     float distance = length(to_spotlight);
-    // Исправленное затухание: полная формула (constant + linear + quadratic)
     float attenuation = 1.0 / (1.0 + distance * distance);
 
     vec3 diffuse_spotlight = spotlight_color * spotlight_intensity * spot_diff
-                             * intensity_factor * attenuation * albedo_color;
+                             * intensity_factor * attenuation * base_color;
 
     vec3 spot_halfway = normalize(spotlight_dir + view_dir);
     float spot_spec = pow(max(dot(normal, spot_halfway), 0.0), 32.0);
